@@ -1,0 +1,834 @@
+---
+title: "In the heat of the moment"
+author: "Sam Boerlijst"
+date: "2024-02-27"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(reshape)
+library(ggpubr)
+library(dplyr)
+library(tidyr)
+library(sjstats)
+library(drc)
+library(ggplot2)
+library("lme4", "car")
+library(grid)
+library(svglite)
+library(pracma)
+library(reshape)
+library(multcomp)
+library(rstatix)
+```
+
+## Population parameter data
+#### Data preparation
+```{r}
+Dataset1<-read.csv2("survival HIHI.csv", sep = ",")
+Dataset1$Container<-as.factor(Dataset1$Container)
+Dataset1$Treatment<-as.factor(Dataset1$Treatment)
+Dataset1$Tr..nb<-as.factor(Dataset1$Tr..nb)
+Dataset1$Density<-as.factor(Dataset1$Density)
+Dataset1$Sex_ratio..m.f.<-as.numeric(Dataset1$Sex_ratio..m.f.)
+Dataset1$Mortality_rate<-as.numeric(Dataset1$Mortality_rate)
+Dataset1$Average_TTE<-as.numeric(Dataset1$Average_TTE)
+Dataset1$TimeToPupation<-as.numeric(Dataset1$Average_TTP)
+
+Dataset1$Treatment<-relevel(Dataset1$Treatment, ref = "Constant") # Set constant as intercept
+summary(Dataset1)
+str(Dataset1)
+```
+#### analyses
+```{r}
+##Survival --> Hypothesis: there is no difference in mosquito survival between different temperature treatments. 
+ModelSurvival<- lm(Adult_Total ~ Treatment, data = Dataset1)
+
+residualPlots(ModelSurvival)
+ncvTest(ModelSurvival) #p>0.05 homoscedacity.
+
+qqPlot(ModelSurvival$residuals)
+shapiro.test(ModelSurvival$residuals) # p>0.05 Normally distributed
+
+influenceIndexPlot(ModelSurvival)
+outlierTest(ModelSurvival) #No outliers. 
+
+summary.aov(ModelSurvival) #p=0.32. No significant difference in survival between different Ttreatments.
+AnovaSurvival<-aov(Adult_Total ~ Treatment, data = Dataset1)
+TukeyHSD(AnovaSurvival)
+ModelSurvival.post<- glht(ModelSurvival, linfct = mcp(Treatment = "Tukey"))
+summary(ModelSurvival.post)
+confint(ModelSurvival.post)
+plot(ModelSurvival.post) 
+```
+```{r}
+##Average_TTE --> Hypothesis: There is no significant difference in Average TTE between different temperature treatments
+ModelAverageTTE<- lm(Average_TTE ~ Treatment, data = Dataset1)
+
+residualPlots(ModelAverageTTE) 
+ncvTest(ModelAverageTTE) #p = 0,2. Variance homoscedastic after taking point 7 and 11 out as outliers (both constant). 
+
+qqPlot(ModelAverageTTE$residuals)
+shapiro.test(ModelAverageTTE$residuals) # p>0.05 Normally distributed
+
+###Outliers?
+influenceIndexPlot(ModelAverageTTE)
+outlierTest(ModelAverageTTE) #No Bonferonni p < 0.05. No outliers. Take point 7 and 11 out as an outlier to get homoscedasity. 
+
+
+summary.aov(ModelAverageTTE) #p=1.96e-06. Detected difference in average TTE between different temperature treatments. 
+AnovaAverageTTE<-aov(Average_TTE ~ Treatment, data = Dataset1)
+TukeyHSD(AnovaAverageTTE) #Significant difference between block:constant (p=0.0000018), curve:constant (p=0.0001054), curve2:constant (p=0.0000050), curve:block (p=0.0318251). No significant difference between curve2:block and curve2:curve. 
+
+sdConstant <- c(23, 20, 22)
+sd(sdConstant)
+sdBlock <- c(15, 14, 15, 14, 14)
+sd(sdBlock)
+sdCurve <- c(16, 16, 18, 15, 18)
+sd(sdCurve)
+sdCurve2 <- c(16, 14, 15, 14, 16)
+sd(sdCurve2)
+
+ModelAverageTTE.post<- glht(ModelAverageTTE, linfct = mcp(Treatment = "Tukey"))
+summary(ModelAverageTTE.post)
+
+bartlett.test(Average_TTE ~ Treatment, data = Dataset1) #p = 0.37. No difference in variance. 
+
+ggline(Dataset1, x = "Treatment", y = "Average_TTE", 
+          add = c("mean_se", "jitter"), 
+          color = "Density",
+          ylab = "Average_TTE", xlab = "Treatment")
+```
+```{r}
+#Time to pupation
+
+##Time to pupation --> Hypothesis: There is no significant difference in time to pupation between different temperature treatments
+ModelTTP<- lm(TimeToPupation ~ Treatment, data = Dataset1)
+
+###Variance homogeneous?
+residualPlots(ModelTTP) 
+ncvTest(ModelTTP) #p = 0,065. Variance homoscedastic
+
+###Normal distributed?
+qqPlot(ModelTTP$residuals)
+shapiro.test(ModelTTP$residuals) # p<0.05 Not normally distributed
+
+###Outliers?
+influenceIndexPlot(ModelTTP)
+outlierTest(ModelTTP) #No Bonferonni p < 0.05. No outliers.
+
+kruskal.test(TimeToPupation ~ Treatment, data = Dataset1)
+dunn.test(Dataset1$TimeToPupation, Dataset1$Treatment)
+
+sdConstant1 <- c(20, 13, 14, 14, 15)
+sd(sdConstant1)
+sdBlock1 <- c(13, 10, 10, 10, 10)
+sd(sdBlock1)
+sdCurve1 <- c(14, 10, 10, 10, 15)
+sd(sdCurve1)
+sdCurve21 <- c(13, 10, 10, 10, 10)
+sd(sdCurve21)
+
+bartlett.test(Average_TTE ~ Treatment, data = Dataset1) #p = 0.37. No difference in variance. 
+
+ggline(Dataset1, x = "Treatment", y = "Average_TTP", 
+          add = c("mean_se", "jitter"),
+          ylab = "Mean time to pupation (Days)", xlab = "Treatment") + geom_signif(comparisons = list(c("Constant", "Block"), c("Constant", "Curve"), c("Constant", "Curve 2")), map_signif_level = TRUE)
+```
+
+
+
+```{r}
+##Sex ratio --> Hypothesis: There is no difference in sexratio between different temperature treatments.
+ModelSexRatio<- lm(Sex_ratio..m.f. ~ Treatment, data = Dataset1)
+
+residualPlots(ModelSexRatio)
+ncvTest(ModelSexRatio) #p = 0.0643 took point 16 out as an outlier (curve 2), now its homoscedastic. 
+
+qqPlot(ModelSexRatio$residuals)
+shapiro.test(ModelSexRatio$residuals) # p>0.05 Normally distributed
+
+influenceIndexPlot(ModelSexRatio)
+outlierTest(ModelSexRatio) #No Bonferonni p < 0.05. No outliers
+
+summary.aov(ModelSexRatio) #p=0.615. No significant difference in sex ratio between different temperature treatments. 
+AnovaSexRatio<-aov(Sex_ratio..m.f. ~ Treatment, data = Dataset1)
+TukeyHSD(AnovaSexRatio)
+
+
+ModelSexRatio.post<- glht(ModelSexRatio, linfct = mcp(Treatment = "Tukey"))
+summary(ModelSexRatio.post)
+confint(ModelSexRatio.post)
+plot(ModelSexRatio.post) 
+
+c <- ggplot(Dataset1, aes(Treatment, Sex_ratio..m.f.))
+c + geom_boxplot(fill = "pink", outlier.colour = "red", outlier.size = 1, colour = "black", lwd = 0.5) + 
+  labs(title = "Sex ratio (m/f) under different temperature treatments", x = "Treatments", y = "Sex ratio (m/f)") +
+  expand_limits(y=0) +
+  theme(legend.position = "top", plot.title = element_text(hjust = 0.5, face = "bold"))
+
+c1 <- ggplot(Dataset1, aes(x = Treatment, y = Sex_ratio..m.f., color = Treatment))
+c1 + geom_boxplot() + labs(title = "Sex ratio (m/f) under different temperature treatments", x = "Treatments", y = "Sex ratio (m/f)") +
+  theme(legend.position = "top", plot.title = element_text(hjust = 0.5, face = "bold"))
+
+ggline(Dataset1, x = "Treatment", y = "Sex_ratio..m.f.", 
+          add = c("mean_se", "jitter"), 
+          ylab = "Sex ratio (m/f)", xlab = "Treatment")
+
+#The data is normally distributed, so we can use a Bartlett's test to test homogeneity of variances
+bartlett.test(Sex_ratio..m.f. ~ Treatment, data = Dataset1)
+#p=0.2227. No significant difference in survival between different Ttreatments.
+```
+
+
+## temperature data
+#### data preparation
+```{r}
+Dataset1<-read.csv("ibutton_HIHI.csv")
+Dataset1$Day<-as.factor(Dataset1$Day)
+Dataset1$Treatment<-as.factor(Dataset1$Treatment)
+Dataset1$Cosm<-as.factor(Dataset1$Cosm)
+Dataset1$quarter<-as.numeric(Dataset1$quarter)
+summary(Dataset1)
+
+Dataset1sub1 <- subset(Dataset1, Day == c("1", "2", "3", "4","5", "6", "7", "8"))
+Dataset1sub2 <- subset(Dataset1, Day == c("9", "10", "11", "12","13", "14", "15", "16"))
+Dataset1noerror <- subset(Dataset1, Day == c("1","2", "3", "4","5", "6", "7"))
+```
+#### analyses
+```{r}
+#1:1plot con
+dat<-droplevels(subset(Dataset1noerror, Cosm == "programmed" & Treatment == "constant"))
+datn<-droplevels(subset(Dataset1noerror, Cosm != "programmed" & Treatment == "constant"))
+#summary(dat)
+#summary(datn)
+dat1<-dat
+dat1$Cosm = 1
+dat2<-dat
+dat2$Cosm = 7
+dat3<-dat
+dat3$Cosm = 17
+datt<-rbind(dat1, dat2, dat3)
+
+datt <- datt[-c(265,266,267), ]
+datt$Cosm<-as.factor(datt$Cosm)
+
+pred<-lm(Temperature ~ quarter, datt)
+actual<-lm(Temperature ~ quarter, datn)
+
+#1:1plot b
+dat<-droplevels(subset(Dataset1noerror, Cosm == "programmed" & Treatment == "block"))
+datn<-droplevels(subset(Dataset1noerror, Cosm != "programmed" & Treatment == "block"))
+dat1<-dat
+dat1$Cosm = 20
+dat2<-dat
+dat2$Cosm = 20
+dat3<-dat
+dat3$Cosm = 10
+dat4<-dat
+dat4$Cosm = 14
+dat5<-dat
+dat5$Cosm = 20
+datt<-rbind(dat1, dat2, dat3,dat4,dat5)
+
+datn <- datn[-c(441), ]
+datt$Cosm<-as.factor(datt$Cosm)
+
+pred<-lm(Temperature ~ quarter, datt)
+actual<-lm(Temperature ~ quarter, datn)
+
+#1:1plot c1
+dat<-droplevels(subset(Dataset1noerror, Cosm == "programmed" & Treatment == "curve1"))
+datn<-droplevels(subset(Dataset1noerror, Cosm != "programmed" & Treatment == "curve1"))
+dat1<-dat
+dat1$Cosm = 9
+dat2<-dat
+dat2$Cosm = 15
+dat3<-dat
+dat3$Cosm = 19
+datt<-rbind(dat1, dat2, dat3)
+
+datn <- datn[-c(265), ]
+datt$Cosm<-as.factor(datt$Cosm)
+
+pred<-lm(Temperature ~ quarter, datt)
+actual<-lm(Temperature ~ quarter, datn)
+
+#1:1plot c2
+dat<-droplevels(subset(Dataset1noerror, Cosm == "programmed" & Treatment == "curve2"))
+datn<-droplevels(subset(Dataset1noerror, Cosm != "programmed" & Treatment == "curve2"))
+datn$Cosm<-as.factor(datn$Cosm)
+
+dat1<-dat
+dat1$Cosm = 16
+dat2<-dat
+dat2$Cosm = 18
+datt<-rbind(dat1, dat2)
+
+datn <- datn[-c(177,178), ]
+datt$Cosm<-as.factor(datt$Cosm)
+
+pred<-lm(Temperature ~ quarter+Day, subset(Dataset1noerror, Treatment == "curve2"))
+actual<-lmer(Temperature ~ quarter:Day+(1|Cosm), subset(Dataset1noerror, Treatment == "curve2"))
+
+pred_int<-predict(actual, newdata = dat, interval = "prediction")
+
+Dataset1noerror$pred<-Dataset1noerror$Cosm
+summary(Dataset1noerror$pred)
+
+shapiro.test(subset(Dataset1noerror, Treatment == "constant")$Temperature)
+
+mean(subset(Dataset1noerror, Treatment == "constant" & pred == "programmed")$Temperature)
+sd(subset(Dataset1noerror, Treatment == "constant" & pred == "programmed")$Temperature)
+mean(subset(Dataset1noerror, Treatment == "constant" & pred != "programmed")$Temperature)
+sd(subset(Dataset1noerror, Treatment == "constant" & pred != "programmed")$Temperature)
+
+#Create column to distinguish predicted and actual temperatures
+levels(Dataset1noerror$pred)<-c("test","test","test","test","test","test","test","test","test","test","test","test","test", "programmed")
+modela<-lmer(Temperature ~ quarter+pred+(1|Cosm)+(1|Day), subset(Dataset1noerror, Treatment == "constant"))
+modelb<-lmer(Temperature ~ quarter+pred+(1|Cosm)+(1|Day), subset(Dataset1noerror, Treatment == "block"))
+modelc1<-lmer(Temperature ~ quarter+pred+(1|Cosm)+(1|Day), subset(Dataset1noerror, Treatment == "curve1"))
+modelc2<-lmer(Temperature ~ quarter+pred+(1|Cosm)+(1|Day), subset(Dataset1noerror, Treatment == "curve2"))
+summary(modela)
+
+anova(modela)[2, "F value"]
+1 - pf(anova(modela)[2, "F value"], 1, 1)
+
+#pred fval 0.003
+summary(modelb)
+
+anova(modelb)[2, "F value"]
+1 - pf(anova(modelb)[2, "F value"], 1, 1)
+
+summary(modela, ddf = "Kenward-Roger")
+#pred fval 0.01
+summary(modelc1)
+
+anova(modelc1)[2, "F value"]
+1 - pf(anova(modelc1)[2, "F value"], 1, 1)
+
+#pred fval 0.43
+summary(modelc2)
+
+anova(modelc2)[2, "F value"]
+1 - pf(anova(modelc2)[2, "F value"], 1, 1)
+#pred fval 1.62
+```
+
+
+
+```{r}
+#transpose programmed temperatures back
+for(x in 1:nrow(Dataset1noerror)){
+  if(Dataset1noerror$Cosm[x] == "programmed"){
+    if(Dataset1noerror$Treatment[x] == "Block"){
+      if(any(Dataset1noerror$quarter[x] < 11)){
+        Dataset1noerror$quarter1[x] = Dataset1noerror$quarter[x] + 86
+      }else{Dataset1noerror$quarter1[x] = Dataset1noerror$quarter[x] -10}
+    }
+    else{
+      if(any(Dataset1noerror$quarter[x] < 7)){
+        Dataset1noerror$quarter1[x] = Dataset1noerror$quarter[x] + 86
+      }else{
+        if(any(Dataset1noerror$quarter[x] > 85)){Dataset1noerror$quarter1[x] = NA}
+        else{Dataset1noerror$quarter1[x] = Dataset1noerror$quarter[x] -6}
+      }}
+  }else{Dataset1noerror$quarter1[x] = Dataset1noerror$quarter[x]}
+}
+
+#copy fist entries to end of curve
+x = 0
+for(x in 1:nrow(Dataset1noerror)){
+  if(Dataset1noerror$Cosm[x] == "programmed"){
+    if(any(Dataset1noerror$quarter[x] > 91)){
+      Dataset1noerror$Temperature[x] = NA
+    }
+    #calculate mean for missing values
+    if(is.na(Dataset1noerror$Temperature[x])){
+      x = Dataset1noerror$Temperature[which(Dataset1noerror$quarter1 == 1 & Dataset1noerror$Cosm == Dataset1noerror$Cosm[x] & Dataset1noerror$Treatment == Dataset1noerror$Treatment[x])[1]]
+      y = Dataset1noerror$Temperature[which(Dataset1noerror$quarter1 == 91 & Dataset1noerror$Cosm == Dataset1noerror$Cosm[x] & Dataset1noerror$Treatment == Dataset1noerror$Treatment[x])[1]]
+      z = Dataset1noerror$quarter[x]
+      Dataset1noerror$Temperature[x] = y+((y - x)/9)
+    }
+  }
+}
+
+#fix constant
+for(x in 1:nrow(Dataset1noerror)){
+  if(Dataset1noerror$Cosm[x] == "programmed"){
+    if(Dataset1noerror$Treatment[x] == "constant"){Dataset1noerror$Temperature[x] = 17}
+  }
+}
+summary(Dataset1noerror)
+
+#remove outliers constant
+for (x in 1:nrow(Dataset1)) {
+  if (!is.na(Dataset1$Treatment[x]) && Dataset1$Treatment[x] == "constant" &&
+      !is.na(Dataset1$Cosm[x]) && Dataset1$Cosm[x] != "programmed") {
+    
+    if (!is.na(Dataset1$Temperature[x])) {
+      if (Dataset1$Temperature[x] < 10 || Dataset1$Temperature[x] > 20 ||
+          Dataset1$Day[x] == 8 || Dataset1$Day[x] == 9) {
+        Dataset1$Temperature[x] = NA
+      }
+    }
+    
+  }
+}
+
+
+#remove data after short
+Dataset1_block_part <- Dataset1
+Dataset1_block_part$Day<-as.numeric(Dataset1_block_part$Day)
+for(x in 1:nrow(Dataset1_block_part)){
+  if(Dataset1_block_part$Treatment[x] == "block"){
+     if(Dataset1_block_part$Cosm[x] != "programmed"){
+       if(Dataset1_block_part$Day[x] > 7){
+          Dataset1_block_part$Temperature[x] = NA
+       }
+     }
+  }
+}  
+Dataset1_block_part$Day<-as.factor(Dataset1_block_part$Day)
+
+###########################################################
+```
+
+#### temperature surface
+```{r}
+#Temperature surface --> Hypotheses: Is there a difference in T surface between different T treatments over days?
+
+Dataset2<-read.csv2("degreedays HIHI.csv") #Removed container 12 (no data) and day 8 (due to technical difficulties)
+Dataset2$Container<-as.factor(Dataset2$Container)
+Dataset2$Treatment<-as.factor(Dataset2$Treatment)
+Dataset2$Tr..nb<-as.factor(Dataset2$Tr..nb)
+Dataset2$Day<-as.factor(Dataset2$Day)
+Dataset2$Surface<-as.numeric(Dataset2$Surface)
+levels(Dataset2$Treatment)
+Dataset2$Treatment<-relevel(Dataset2$Treatment, ref = "Constant") #We want Constant as our intercept. 
+
+
+#Assumptions:
+#Outliers:
+require("rstatix")
+OutlierT <-Dataset2 %>% group_by(Treatment, Day) %>% identify_outliers(Surface)  
+data.frame(OutlierT)
+#Container 13, day 9, 10; container 7 day 13; container 8 day 3; container 19 day 1, container 9 day 14 and 15, container 19 day 21 and container 2 day 1, container 18 day 13, 15, 22. Made them NA in excel file Temperature surface. No outliers anymore
+
+#Normality
+NormalityT<-Dataset2  %>%
+group_by(Treatment, Day) %>% 
+shapiro_test(Surface)
+data.frame(NormalityT)
+
+
+require("ggpubr")
+ggqqplot(Dataset2, "Surface", facet.by = "Day")
+
+#One way anova
+
+require("rstatix")
+Dataset2 %>%
+  group_by(Treatment, Day) %>%
+  get_summary_stats(Surface, type = "mean_sd")
+
+Dataset2 %>% group_by(Treatment, Day )%>% identify_outliers(Surface) 
+
+Dataset2  %>% group_by(Treatment, Day)  %>%  shapiro_test(Surface)
+
+Dataset2twoway <- na.omit(Dataset2)
+
+res.aovtwowayanovaT <- aov(Surface ~ Day + Treatment + Day:Treatment, data = Dataset2twoway)
+summary(res.aovtwowayanovaT) #interactions for Day, Treatment and its interaction. 
+
+posthoc2WT<-TukeyHSD(res.aovtwowayanovaT, which = "Day:Treatment")
+as.data.frame(tidy(posthoc2WT)) %>% 
+    filter(adj.p.value < .05)
+```
+
+## abiotics
+```{r}
+Dataset4<-read.csv2("Abiotics HIHI.csv")
+Dataset4$Week<-as.factor(Dataset4$Week)
+Dataset4$Treatment<-as.factor(Dataset4$Treatment)
+Dataset4$Day<-as.numeric(Dataset4$Day)
+Dataset4$Container<-as.factor(Dataset4$Container)
+Dataset4$Tr..nb<-as.factor(Dataset4$Tr..nb)
+Dataset4$DO<-as.numeric(Dataset4$DO)
+Dataset4$Chlorophyll.a<-as.numeric(Dataset4$Chlorophyll.a)
+Dataset4$Treatment<-relevel(Dataset4$Treatment, ref = "Constant") #We want Constant as our intercept. 
+str(Dataset4)
+
+#DO permanently saturated so excluded from further analyses.
+
+#Outliers c.a:
+OutlierCA <- Dataset4 %>% group_by(Treatment, Week) %>% identify_outliers(Chlorophyll.a)
+data.frame(OutlierCA) #container 8, day 1, container 1 day 29, container 15 day 8, container 19 day 15, container 2 day 8. 
+OutlierCA<-Dataset4[-c(8, 81, 35, 59, 22),]
+OutliercheckCA2 <- OutlierCA%>% group_by(Treatment, Week) %>% identify_outliers(Chlorophyll.a)
+data.frame(OutliercheckCA2) #No outliers anymore. 
+
+#Create dataset with NA for the outliers
+Dataset4.1<-read.csv2("Abiotics HIHI NA.csv")
+Dataset4.1$Week<-as.factor(Dataset4.1$Week)
+Dataset4.1$Treatment<-as.factor(Dataset4.1$Treatment)
+Dataset4.1$Day<-as.numeric(Dataset4.1$Day)
+Dataset4.1$Container<-as.factor(Dataset4.1$Container)
+Dataset4.1$Tr..nb<-as.factor(Dataset4.1$Tr..nb)
+Dataset4.1$DO<-as.numeric(Dataset4.1$DO)
+Dataset4.1$Chlorophyll.a<-as.numeric(Dataset4.1$Chlorophyll.a)
+levels(Dataset4.1$Treatment)
+Dataset4.1$Treatment<-relevel(Dataset4.1$Treatment, ref = "Constant") #We want Constant as our intercept. 
+summary(Dataset4.1)
+str(Dataset4.1)
+
+OutlierCA1 <- Dataset4.1 %>% group_by(Treatment, Week) %>% identify_outliers(Chlorophyll.a)
+data.frame(OutlierCA1)
+
+#Normality
+require("rstatix")
+NormalityCA<-Dataset4.1 %>%
+group_by(Treatment, Week) %>%  
+shapiro_test(Chlorophyll.a)
+data.frame(NormalityCA) 
+#1p onder de 0.05, dus normaal verdeeld. 
+
+#Computation: sphericiteit neemt die mee in de anova zelf. The variance of the differences between groups should be equal
+
+#One way anova 
+require("rstatix")
+res.aovAB <- anova_test(Chlorophyll.a ~ Treatment + Error(Container/(Week)), 
+  data = Dataset4.1, 
+  dv = Chlorophyll.a, 
+  wid = Container, 
+  within = Week) 
+get_anova_table(res.aovAB) 
+#No differences between treatments. 
+
+#Two way anova
+Dataset4twoway <- na.omit(Dataset4.1)
+
+res.aovtwowayanovaC <- aov(Chlorophyll.a ~ Week + Treatment, data = Dataset4twoway)
+summary(res.aovtwowayanovaC) 
+#No differences between treatments. 
+
+bxpnooutlier4.1 <- summarySE(Dataset4, measurevar="Chlorophyll.a", groupvars=c("Week","Treatment"))
+bxpnooutlier4.1
+
+ggplot(bxpnooutlier4.1, aes(x=Week, y=Chlorophyll.a, colour=Treatment)) + 
+    geom_errorbar(aes(ymin=Chlorophyll.a-se, ymax=Chlorophyll.a+se), width=.1) +
+    geom_line() +
+    geom_point() + labs(title = "Chlorophyll A concentration over weeks", x = "Weeks", y = "Chlorophyll A") +
+  theme(legend.position = "top", plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+## visualization
+```{r}
+Dataset1$Treatment = factor(Dataset1$Treatment, levels=c('constant','block','curve1','curve2'))
+#plot merge days | split treatment
+noerror <- ggplot(Dataset1, aes(x = quarter/4, y = Temperature, color = Treatment))  + geom_line(data = subset(Dataset1noerror, Cosm == "programmed"), aes(x = quarter1/4, y = Temperature)) + labs(x = "Time (hours)", y = "Temperature (C)") + theme(legend.position = "top", plot.title = element_text(hjust = 0.5, face = "bold")) + facet_grid(cols = vars(Treatment))+ geom_smooth(data = subset(Dataset1, Cosm != "programmed"), se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")+guides(color = FALSE)+  theme_classic(base_size = 16) + scale_y_continuous(breaks = round(seq(12, 24, by = 2),1)) + scale_x_continuous(breaks = round(seq(0, 24, by = 4),1))  + scale_color_manual(values=c("#648FFF", "#785EF0", "#DC267F", "#FE6100")) + theme(strip.text.x = element_blank()) + geom_hline(yintercept = 17, linetype = 2, alpha = 0.6)
+noerror
+#ggsave(noerror, filename = "realtemp_1-8.png", height = 3, width = 8)
+
+noerror_raw <- ggplot(subset(Dataset1, Cosm != "programmed"), aes(x = quarter/4, y = Temperature, color = Treatment)) +geom_jitter(alpha=0.1, height = 0.1, width = 0) + geom_line(data = subset(Dataset1noerror, Cosm == "programmed")) + theme(legend.position = "top", plot.title = element_text(hjust = 0.5, face = "bold")) + facet_grid(cols = vars(Treatment))+ theme_classic(base_size = 16) + scale_y_continuous(breaks = round(seq(12, 24, by = 2),1)) + scale_x_continuous(breaks = round(seq(0, 24, by = 4),1))  + scale_color_manual(values=c("#648FFF", "#785EF0", "#DC267F", "#FE6100")) + theme(strip.text.x = element_blank()) + ylim(12,24)+ labs(x = "Time (hours)", y = "Temperature (C)") 
+noerror_raw
+
+summary(Dataset1_block_part)
+Dataset1_block_part$Treatment = factor(Dataset1_block_part$Treatment, levels=c('constant','block','curve1','curve2'))
+
+noerror_part <- ggplot(Dataset1_block_part, aes(x = quarter/4, y = Temperature, color = Treatment)) + geom_line(data = subset(Dataset1noerror, Cosm == "programmed"), aes(x = quarter1/4, y = Temperature)) + labs(x = "Time (hours)", y = "Temperature (C)") + theme(legend.position = "top", plot.title = element_text(hjust = 0.5, face = "bold")) + facet_grid(cols = vars(Treatment))+ geom_smooth(data = subset(Dataset1_block_part, Cosm != "programmed"), se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")+guides(color = FALSE)+  theme_classic(base_size = 16) + scale_y_continuous(breaks = round(seq(12, 24, by = 2),1)) + scale_x_continuous(breaks = round(seq(0, 24, by = 4),1))  + scale_color_manual(values=c("#785EF0","#648FFF",  "#DC267F", "#FE6100")) + theme(strip.text.x = element_blank())+ geom_hline(yintercept = 17, linetype = 2, alpha = 0.6) #+geom_rect(ymin = 16.5, ymax = 17.5, xmin = -Inf, xmax = Inf, fill = "gray", alpha = 0.01, colour = "white")
+noerror_part
+#ggsave(noerror, filename = "realtemp_1-8.png", height = 3, width = 8)
+Dataset1_block_part$Day<-as.numeric(Dataset1_block_part$Day)
+noerror_part_raw <- ggplot(subset(subset(Dataset1_block_part, Cosm != "programmed"),Day<9), aes(x = quarter/4, y = Temperature, color = Treatment)) +geom_jitter(alpha=0.2, height = 0.1, width = 0) + geom_line(data = subset(Dataset1noerror, Cosm == "programmed")) + theme(legend.position = "top", plot.title = element_text(hjust = 0.5, face = "bold")) + facet_grid(cols = vars(Treatment))+ theme_classic(base_size = 16) + scale_y_continuous(breaks = round(seq(12, 24, by = 2),1)) + scale_x_continuous(breaks = round(seq(0, 24, by = 4),1))  + scale_color_manual(values=c("#648FFF", "#785EF0", "#DC267F", "#FE6100")) + theme(strip.text.x = element_blank()) + ylim(12,24)+ labs(x = "Time (hours)", y = "Temperature (C)") 
+noerror_part_raw
+
+error <- subset(Dataset1noerror, Treatment == "constant" & pred != "programmed" & Temperature > 20)
+
+```
+
+```{r}
+#plot treatments
+
+treatment_plot <- ggplot(subset(subset(Dataset1_block_part, Cosm == "programmed"),Day == 2), aes(x = quarter/4, y = Temperature, color = Treatment))+ geom_line() + theme(legend.position = "top", plot.title = element_text(hjust = 0.5, face = "bold")) + theme_classic(base_size = 16) + scale_y_continuous(breaks = round(seq(12, 24, by = 2),1)) + scale_x_continuous(breaks = round(seq(0, 24, by = 4),1))  + scale_color_manual(values=c("#648FFF", "#785EF0", "#DC267F", "#FE6100")) + theme(strip.text.x = element_blank()) + labs(x = "Time (hours)", y = "Temperature (C)") 
+treatment_plot
+```
+
+```{r}
+ggsave(treatment_plot, filename = "ITHOTM_Figure_2.png", height = 9, width = 12)
+ggsave(treatment_plot, filename = "svg/ITHOTM_Figure_2.svg", height = 9, width = 12)
+```
+
+```{r}
+#get unique lists
+x = sort(unique(Dataset1$Day))
+y = sort(unique(Dataset1$Cosm))
+z = sort(unique(Dataset1$Treatment))
+
+#subset respective dataframes
+dataco <- subset(Dataset1, Treatment == "constant")
+databl <- subset(Dataset1, Treatment == "block")
+datac1 <- subset(Dataset1, Treatment == "curve1")
+datac2 <- subset(Dataset1, Treatment == "curve2")
+
+#drop unused levels
+dataco[] <- lapply(dataco, function(x) if(is.factor(x)) factor(x) else x)
+databl[] <- lapply(databl, function(x) if(is.factor(x)) factor(x) else x)
+datac1[] <- lapply(datac1, function(x) if(is.factor(x)) factor(x) else x)
+datac2[] <- lapply(datac2, function(x) if(is.factor(x)) factor(x) else x)
+
+
+#create empty dataframe
+const_surface <- matrix(ncol=length(sort(unique(dataco$Cosm)))+1, nrow=length(x))
+block_surface <- matrix(ncol=length(sort(unique(databl$Cosm)))+1, nrow=length(x))
+cur1_surface <- matrix(ncol=length(sort(unique(datac1$Cosm)))+1, nrow=length(x))
+cur2_surface <- matrix(ncol=length(sort(unique(datac2$Cosm)))+1, nrow=length(x))
+
+#populate column names
+colnames(const_surface) <- append(levels(sort(unique(dataco$Cosm))),"day", after = 0)
+colnames(block_surface) <- append(levels(sort(unique(databl$Cosm))),"day", after = 0)
+colnames(cur1_surface) <- append(levels(sort(unique(datac1$Cosm))),"day", after = 0)
+colnames(cur2_surface) <- append(levels(sort(unique(datac2$Cosm))),"day", after = 0)
+
+#populate days
+const_surface[1:16,1] <-x
+block_surface[1:16,1] <-x
+cur1_surface[1:16,1] <-x
+cur2_surface[1:16,1] <-x
+
+#for constant
+for(i in levels(sort(unique(dataco$Cosm)))){ #per cosm
+  k = grep(i, levels(sort(unique(dataco$Cosm))))+1
+  for(j in x){ #per day
+    set = subset(Dataset1, Treatment == "constant" & Day == j & Cosm == i)
+    b <- trapz(set$quarter, set$Temperature)
+    l = grep(j, x)
+    const_surface[l,k] <- b
+    #print(paste("cosm ", i, " day ", j, " surface ", b, " position [", l, ",", k, "]"))
+  }
+}
+
+#for block
+for(i in levels(sort(unique(databl$Cosm)))){ #per cosm
+  k = grep(i, levels(sort(unique(databl$Cosm))))+1
+  for(j in x){ #per day
+    set = subset(Dataset1, Treatment == "block" & Day == j & Cosm == i)
+    b <- trapz(set$quarter, set$Temperature)
+    l = grep(j, x)
+    block_surface[l,k] <- b
+    #print(paste("cosm ", i, " day ", j, " surface ", b, " position [", l, ",", k, "]"))
+  }
+}
+
+#for curve1
+for(i in levels(sort(unique(datac1$Cosm)))){ #per cosm
+  k = grep(i, levels(sort(unique(datac1$Cosm))))+1
+  for(j in x){ #per day
+    set = subset(Dataset1, Treatment == "curve1" & Day == j & Cosm == i)
+    b <- trapz(set$quarter, set$Temperature)
+    l = grep(j, x)
+    cur1_surface[l,k] <- b
+    #print(paste("cosm ", i, " day ", j, " surface ", b, " position [", l, ",", k, "]"))
+  }
+}
+
+#for curve2
+for(i in levels(sort(unique(datac2$Cosm)))){ #per cosm
+  k = grep(i, levels(sort(unique(datac2$Cosm))))+1
+  for(j in x){ #per day
+    set = subset(Dataset1, Treatment == "curve2" & Day == j & Cosm == i)
+    b <- trapz(set$quarter, set$Temperature)
+    l = grep(j, x)
+    cur2_surface[l,k] <- b
+    #print(paste("cosm ", i, " day ", j, " surface ", b, " position [", l, ",", k, "]"))
+  }
+}
+
+const_surface <- as.data.frame(const_surface)
+block_surface <- as.data.frame(block_surface)
+cur1_surface <- as.data.frame(cur1_surface)
+cur2_surface <- as.data.frame(cur2_surface)
+const_surface <- melt.data.frame(const_surface, id.vars = "day", measure.vars = levels(sort(unique(dataco$Cosm))))
+block_surface <- melt.data.frame(block_surface, id.vars = "day", measure.vars = levels(sort(unique(databl$Cosm))))
+cur1_surface <- melt.data.frame(cur1_surface, id.vars = "day", measure.vars = levels(sort(unique(datac1$Cosm))))
+cur2_surface <- melt.data.frame(cur2_surface, id.vars = "day", measure.vars = levels(sort(unique(datac2$Cosm))))
+
+const_surface$Treatment<-"Constant"
+block_surface$Treatment<-"Block"
+cur1_surface$Treatment<-"Curve"
+cur2_surface$Treatment<-"Curve2"
+total <- rbind(const_surface, block_surface, cur1_surface, cur2_surface)
+total$value <- total$value/16 #to degreehours
+str(total)
+
+#boxplot per day
+totalnoerror <- subset(total, variable != "programmed"& day > 1 & day < 16)
+totalnoerror$day <-as.numeric(totalnoerror$day)
+
+totalnoerror_block_part <- totalnoerror
+totalnoerror_block_part$day<-as.numeric(totalnoerror_block_part$day)
+for(x in 1:nrow(totalnoerror_block_part)){
+  if(totalnoerror_block_part$Treatment[x] == "Block"){
+    if(totalnoerror_block_part$day[x] > 7){
+      totalnoerror_block_part$value[x] = NA
+     }
+  }
+}  
+
+summary(totalnoerror_block_part)
+##################################################################################################
+totalnoerror$Treatment<-as.factor(totalnoerror$Treatment)
+totalnoerror$Treatment = factor(totalnoerror$Treatment, levels=c('Constant','Block','Curve','Curve2'))
+summary(totalnoerror)
+
+
+totalplot <- ggplot(subset(totalnoerror, day >1 & day != 8), aes(x = Treatment, y = ((value/1.01)*17)/100, color = Treatment)) + theme_classic(base_size = 16) + labs(y="Daily mean temperature (C)", x="Treatment") + geom_hline(yintercept = 17, linetype =2)  + geom_boxplot() + scale_y_continuous(breaks = round(seq(12, 24, by = 2),1))  + scale_color_manual(values=c("#648FFF", "#785EF0", "#DC267F", "#FE6100"))#+  geom_rect(ymin = 16.5, ymax = 17.5, xmin = -Inf, xmax = Inf, fill = "gray", alpha = 0.01, colour = "white")
+
+totalnoerror_block_part$Treatment<-as.factor(totalnoerror_block_part$Treatment)
+totalnoerror_block_part$Treatment = factor(totalnoerror_block_part$Treatment, levels=c('Constant','Block','Curve','Curve2'))
+summary(totalnoerror_block_part)
+
+
+totalplot_part <- ggplot(subset(totalnoerror_block_part, day >1 & day != 8), aes(x = Treatment, y = ((value/1.01)*17)/100, color = Treatment)) + theme_classic(base_size = 16) + labs(y="Daily mean temperature (C)", x="Treatment") + geom_hline(yintercept = 17, linetype =2) + geom_boxplot() + scale_y_continuous(breaks = round(seq(12, 24, by = 2),1))  + scale_color_manual(values=c("#648FFF", "#785EF0", "#DC267F", "#FE6100"))+ theme_classic(base_size = 16)#+  geom_rect(ymin = 16.5, ymax = 17.5, xmin = -Inf, xmax = Inf, fill = "gray", alpha = 0.01, colour = "white") 
+
+totalplot
+totalplot_part
+```
+
+```{r}
+totalnoerror$day <- as.numeric(totalnoerror$day)
+totalnoerror$Treatment <- as.factor(totalnoerror$Treatment)
+
+asterisk <- grobTree(textGrob("*", x=0.35,  y=0.9, hjust=0,gp=gpar(col="black", fontsize=14, fontface="italic")))
+asterisk2 <- grobTree(textGrob("*", x=0.35,  y=0.4, hjust=0,gp=gpar(col="black", fontsize=14, fontface="italic")))
+
+totalfigure <- ggarrange(NULL, NULL, NULL,noerror, NULL, totalplot, labels = c("","","", "a","", "b"), nrow = 3, ncol = 2, common.legend = TRUE, legend = FALSE, heights = c(0.4,4,4), widths = c(0.1,4), vjust = -0.4, hjust = 1.4, font.label = list(size = 16, face = "plain"))
+totalfigure
+
+totalfigure_raw <- ggarrange(NULL, NULL, NULL,noerror_raw, NULL, totalplot, labels = c("","","", "a","", "b"), nrow = 3, ncol = 2, common.legend = TRUE, legend = FALSE, heights = c(0.4,4,4), widths = c(0.1,4), vjust = -0.4, hjust = 1.4, font.label = list(size = 16, face = "plain"))
+
+totalfigure_part <- ggarrange(NULL, NULL, NULL,noerror_part, NULL, totalplot_part, labels = c("","","", "a","", "b"), nrow = 3, ncol = 2, common.legend = TRUE, legend = FALSE, heights = c(0.5,6,6), widths = c(0.1,4), vjust = -0.4, hjust = 1.4, font.label = list(size = 16, face = "plain"))+annotation_custom(asterisk)+annotation_custom(asterisk2)
+totalfigure_part
+
+totalfigure_part_raw <- ggarrange(NULL, NULL, NULL,noerror_part_raw, NULL, totalplot_part, labels = c("","","", "a","", "b"), nrow = 3, ncol = 2, common.legend = TRUE, legend = FALSE, heights = c(0.4,4,4), widths = c(0.1,4), vjust = -0.4, hjust = 1.4, font.label = list(size = 16, face = "plain"))+annotation_custom(asterisk)+annotation_custom(asterisk2)
+
+totalfigure_raw_only <- ggarrange(NULL, NULL, NULL,noerror_part_raw, NULL, noerror_raw, labels = c("","","", "a","", "b"), nrow = 3, ncol = 2, common.legend = TRUE, legend = "bottom", heights = c(0.4,4,4), widths = c(0.1,4), vjust = -0.4, hjust = 1.4, font.label = list(size = 18, face = "plain"))
+totalfigure_raw_only 
+```
+
+```{r}
+ggsave(totalfigure, filename = "ITHOTM_Figure_4_supplements.svg", height = 9, width = 12)
+ggsave(totalfigure, filename = "ITHOTM_Figure_4_supplements.png", height = 9, width = 12)
+
+ggsave(totalfigure, filename = "ITHOTM_Figure_s3.png", height = 9, width = 14)
+ggsave(totalfigure, filename = "svg/ITHOTM_Figure_s3.svg", height = 9, width = 14)
+
+ggsave(totalfigure_raw_only, filename = "ITHOTM_Figure_s4.png", height = 9, width = 14)
+ggsave(totalfigure_raw_only, filename = "svg/ITHOTM_Figure_s4.svg", height = 9, width = 14)
+
+ggsave(totalfigure_part, filename = "ITHOTM_Figure_3.png", height = 9, width = 12)
+ggsave(totalfigure_part, filename = "svg/ITHOTM_Figure_3.svg", height = 9, width = 12)
+```
+
+## Visualization development data
+#### data preparation
+```{r}
+LarvalCounts <- read.csv("larval counts HIHI.csv")
+LarvalCounts$Container<-as.factor(LarvalCounts$Container)
+LarvalCounts$Day<-as.numeric(LarvalCounts$Day)
+LarvalCounts$Treatment<-as.factor(LarvalCounts$Treatment)
+LarvalCounts$L1<-as.numeric(LarvalCounts$L1)
+LarvalCounts$L2<-as.numeric(LarvalCounts$L2)
+LarvalCounts$L3<-as.numeric(LarvalCounts$L3)
+LarvalCounts$L4<-as.numeric(LarvalCounts$L4)
+
+#Counts are based on proportions for each day respective to the number of adults emerged per container. Starting numbers do therefore not match and have to be corrected. Inherently there is an assumption in the visualization that the mortality occurs between day 0 and 1.
+rows_to_change <- LarvalCounts$Day == 0
+LarvalCounts$L1[rows_to_change] <- 200
+
+
+```
+
+```{r}
+#melt into unmerged and merged life stage matrices
+LarvalCounts$Larvae<-LarvalCounts$L1+LarvalCounts$L2+LarvalCounts$L3+LarvalCounts$L4
+
+LarvalCountsMelt <- melt.data.frame(LarvalCounts, id.vars = c("Container", "Day", "Treatment"), measure.vars = c("L1", "L2", "L3", "L4", "Pupae", "Male", "Female"))
+LarvalCountsMelt1 <- melt.data.frame(LarvalCounts, id.vars = c("Container", "Day", "Treatment"), measure.vars = c("Larvae", "Pupae", "Male", "Female"))
+
+#correct for mistake where male and female are additively 200%
+for(x in 1:nrow(LarvalCountsMelt)){
+  if(LarvalCountsMelt$variable[x] == "Male" | LarvalCountsMelt$variable[x] == "Female"){
+    LarvalCountsMelt$value[x] = LarvalCountsMelt$value[x]/2 
+  }
+}
+for(x in 1:nrow(LarvalCountsMelt1)){
+  if(LarvalCountsMelt1$variable[x] == "Male" | LarvalCountsMelt1$variable[x] == "Female"){
+    LarvalCountsMelt1$value[x] = LarvalCountsMelt1$value[x]/2 
+  }
+}
+
+# subset by treatment
+df1 <- subset(LarvalCountsMelt, Treatment == c("Constant"), select = -Treatment)
+df2 <- subset(LarvalCountsMelt, Treatment == c("Block"), select = -Treatment)
+df3 <- subset(LarvalCountsMelt, Treatment == c("Curve"), select = -Treatment)
+df4 <- subset(LarvalCountsMelt, Treatment == c("Curve 2"), select = -Treatment)
+
+dfl1 <- subset(LarvalCountsMelt1, Treatment == c("Constant"), select = -Treatment)
+dfl2 <- subset(LarvalCountsMelt1, Treatment == c("Block"), select = -Treatment)
+dfl3 <- subset(LarvalCountsMelt1, Treatment == c("Curve"), select = -Treatment)
+dfl4 <- subset(LarvalCountsMelt1, Treatment == c("Curve 2"), select = -Treatment)
+```
+
+#### rendering figures development
+```{r}
+#development_all_stages
+area_constant <- ggplot(df1, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="") + geom_smooth(data = df1, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2)+scale_fill_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_block <- ggplot(df2, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y=" Number of mosquitoes", x="") + geom_smooth(data = df2, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 12.5, y = 100, xend = 12.5, yend = 50),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+scale_fill_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_curve <- ggplot(df3, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="") + geom_smooth(data = df3, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity") + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 13, y = 180, xend = 13, yend = 130),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+scale_fill_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_curve2 <- ggplot(df4, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="Time (days)") + geom_smooth(data = df4, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 12.4, y = 140, xend = 12.4, yend = 90),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+scale_fill_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+
+arrange<- ggarrange(NULL, area_constant, area_block, area_curve, area_curve2, labels = c("", "Constant", "  Block", "  Curve", " Curve 2"), ncol = 1, nrow = 5, common.legend = TRUE, legend = "right", hjust = -0.4, vjust = -0.6, heights = c(1,4,4,4,4), font.label = list(size = 14, face = "plain")) + guides(color = "none")
+arrange 
+
+##raw
+area_constant <- ggplot(df1, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="") + geom_smooth(data = df1, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2)+geom_jitter(alpha=0.1, height = 0, width = 0.3)+scale_fill_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+scale_color_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_block <- ggplot(df2, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y=" Number of mosquitoes", x="") + geom_smooth(data = df2, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 12.5, y = 100, xend = 12.5, yend = 50),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+geom_jitter(alpha=0.1, height = 0, width = 0.3)+scale_fill_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+scale_color_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_curve <- ggplot(df3, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="") + geom_smooth(data = df3, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity") + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 13, y = 180, xend = 13, yend = 130),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+geom_jitter(alpha=0.1, height = 0, width = 0.3)+scale_fill_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+scale_color_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_curve2 <- ggplot(df4, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="Time (days)") + geom_smooth(data = df4, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 12.4, y = 140, xend = 12.4, yend = 90),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+geom_jitter(alpha=0.1, height = 0, width = 0.3)+scale_fill_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+scale_color_manual(values=c("#000000", "#009E73", "#648FFF", "#785EF0", "#DC267F", "#FFB000", "#F0E442"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+
+arrange_raw <- ggarrange(NULL, area_constant, area_block, area_curve, area_curve2, labels = c("", "Constant", "  Block", "  Curve", " Curve 2"), ncol = 1, nrow = 5, common.legend = TRUE, legend = "right", hjust = -0.4, vjust = -0.6, heights = c(1,4,4,4,4), font.label = list(size = 14, face = "plain")) + guides(color = "none")
+arrange_raw 
+
+#larvae merged
+area_constantl <- ggplot(dfl1, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="") + geom_smooth(data = dfl1, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2)+scale_fill_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("Larvae","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_blockl <- ggplot(dfl2, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y=" Number of mosquitoes", x="") + geom_smooth(data = dfl2, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 12.5, y = 100, xend = 12.5, yend = 50),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+scale_fill_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("Larvae","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_curvel <- ggplot(dfl3, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="") + geom_smooth(data = dfl3, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity") + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 13, y = 180, xend = 13, yend = 130),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+scale_fill_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("Larvae","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_curve2l <- ggplot(dfl4, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="Time (days)") + geom_smooth(data = dfl4, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 12.4, y = 140, xend = 12.4, yend = 90),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+scale_fill_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("Larvae","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+
+arrangel <- ggarrange(NULL, area_constantl, area_blockl, area_curvel, area_curve2l, labels = c("", "Constant", "  Block", "  Curve", " Curve 2"), ncol = 1, nrow = 5, common.legend = TRUE, legend = "right", hjust = -0.4, vjust = -0.6, heights = c(1,4,4,4,4), font.label = list(size = 14, face = "plain")) + guides(color = "none")
+arrangel
+
+##raw
+area_constantl <- ggplot(dfl1, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="") + geom_smooth(data = dfl1, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2)+geom_jitter(alpha=0.1, height = 0, width = 0.3)+scale_fill_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("Larvae","Pupae","Male","Female"))+scale_color_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_blockl <- ggplot(dfl2, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y=" Number of mosquitoes", x="") + geom_smooth(data = dfl2, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 12.5, y = 100, xend = 12.5, yend = 50),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+geom_jitter(alpha=0.1, height = 0, width = 0.3)+scale_fill_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("Larvae","Pupae","Male","Female"))+scale_color_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_curvel <- ggplot(dfl3, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="") + geom_smooth(data = dfl3, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity") + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 13, y = 180, xend = 13, yend = 130),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+geom_jitter(alpha=0.1, height = 0, width = 0.3)+scale_fill_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("Larvae","Pupae","Male","Female"))+scale_color_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+area_curve2l <- ggplot(dfl4, aes(x = Day, y = value, fill = variable, color = variable), stat = "identity")  +  ylim(0,NA) + xlim(0,NA) + labs(y="", x="Time (days)") + geom_smooth(data = dfl4, se = TRUE, method = "gam", inherit.aes = TRUE, color = 0.1, alpha = 0.4, position = "identity")  + guides(color = "none") + theme_classic(base_size = 16)+ geom_vline(xintercept=15.8, linetype = 1) + geom_vline(xintercept=21.5, linetype = 2) + geom_segment(aes(x = 12.4, y = 140, xend = 12.4, yend = 90),arrow = arrow(length = unit(1, "mm")), colour = "#000000")+geom_jitter(alpha=0.1, height = 0, width = 0.3)+scale_fill_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("Larvae","Pupae","Male","Female"))+scale_color_manual(values=c("#009E73", "#785EF0", "#DC267F", "#FFB000"), labels = c("L1","L2","L3","L4","Pupae","Male","Female"))+ guides(color = "none", fill = guide_legend(title = 'Life stage'))
+
+arrangel_raw <- ggarrange(NULL, area_constantl, area_blockl, area_curvel, area_curve2l, labels = c("", "Constant", "  Block", "  Curve", " Curve 2"), ncol = 1, nrow = 5, common.legend = TRUE, legend = "right", hjust = -0.4, vjust = -0.6, heights = c(1,4,4,4,4), font.label = list(size = 14, face = "plain")) + guides(color = "none")
+arrangel_raw
+```
+
+#### saving figures
+```{r}
+ggsave(arrangel, filename = "ITHOTM_Figure_s5.png",height = 6, width = 9)
+ggsave(arrange_raw, filename = "ITHOTM_Figure_s7.png",height = 7, width = 10)
+ggsave(arrange, filename = "ITHOTM_Figure_5.png",height = 6, width = 9)
+ggsave(arrangel_raw, filename = "ITHOTM_Figure_s6.png",height = 7, width = 10)
+
+ggsave(arrangel, filename = "svg/ITHOTM_Figure_s5.svg",height = 7, width = 10)
+ggsave(arrange_raw, filename = "svg/ITHOTM_Figure_s7.svg",height = 7, width = 10)
+ggsave(arrange, filename = "svg/ITHOTM_Figure_5.svg",height = 7, width = 10)
+ggsave(arrangel_raw, filename = "svg/ITHOTM_Figure_s6.svg",height = 7, width = 10)
+```
